@@ -8,18 +8,22 @@ module.exports = function (client, options) {
 
   client.on('keep_alive', onKeepAlive)
 
-  let timeout = null
-
-  client.on('end', () => clearTimeout(timeout))
-
   function onKeepAlive (packet) {
-    if (timeout) { clearTimeout(timeout) }
-    timeout = setTimeout(() => {
-      client.emit('error', new Error(`client timed out after ${checkTimeoutInterval} milliseconds`))
-      client.end('keepAliveError')
-    }, checkTimeoutInterval)
-    client.write('keep_alive', {
-      keepAliveId: packet.keepAliveId
-    })
+    // Azalea 방식: 타임아웃 로직 제거, 즉시 응답만 처리
+    // EPIPE 에러 방지를 위해 연결 상태 확인
+    if (client.ended) return
+    
+    try {
+      client.write('keep_alive', {
+        keepAliveId: packet.keepAliveId
+      })
+    } catch (error) {
+      // EPIPE 등 소켓 에러는 무시하고 연결 종료 처리
+      if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
+        client.end('socketError')
+      } else {
+        client.emit('error', error)
+      }
+    }
   }
 }
